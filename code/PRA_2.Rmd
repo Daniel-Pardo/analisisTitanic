@@ -4,17 +4,17 @@ author: "Daniel Pardo Navarro"
 date: "04 Enero 2021"
 output:
   
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+    highlight: default
+    number_sections: yes
   html_document:
     highlight: default
     number_sections: yes
     theme: cosmo
     toc: yes
     toc_depth: 2
-  pdf_document:
-    toc: yes
-    toc_depth: '2'
-    highlight: default
-    number_sections: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -24,11 +24,6 @@ library(ggplot2)
 library(GGally)
 library(reshape2)
 library(knitr)
-library(faraway)
-library(questionr)
-library(ResourceSelection)
-library(pROC)
-
 library(nortest)
 library(stringr)
 library(VIM)
@@ -106,11 +101,11 @@ En este caso tenemos dos conjuntos de datos ya definidos: uno para realizar el e
 En primer lugar cargamos los dos conjuntos de datos.
 
 ```{r}
-datos_train<-read.csv("train.csv", sep=",",na.strings = "NA")
+datos_train<-read.csv("../train.csv", sep=",",na.strings = "NA")
 ```
 
 ```{r}
-datos_test<-read.csv("test.csv", sep=",",na.strings = "NA")
+datos_test<-read.csv("../test.csv", sep=",",na.strings = "NA")
 
 ```
 
@@ -897,7 +892,7 @@ names(kaggle_rl)[names(kaggle_rl) == 'prediccion_rl'] <- 'Survived'
 
 kaggle_rl['Survived'] <- as.integer(unlist(kaggle_rl['Survived']))
 
-write.csv(kaggle_rl,"kaggle_rl.csv", row.names = FALSE)
+write.csv(kaggle_rl,"../kaggle_rl.csv", row.names = FALSE)
 
 ```
 
@@ -986,7 +981,7 @@ kaggle_c50['Survived'] <- as.integer(unlist(kaggle_c50['Survived']))
 kaggle_c50$Survived[kaggle_c50$Survived==1]<-0 
 kaggle_c50$Survived[kaggle_c50$Survived==2]<-1 
 
-write.csv(kaggle_c50,"kaggle_c50.csv", row.names = FALSE)
+write.csv(kaggle_c50,"../kaggle_c50.csv", row.names = FALSE)
 
 ```
 
@@ -1081,7 +1076,7 @@ kaggle_rf['Survived'] <- as.integer(unlist(kaggle_rf['Survived']))
 kaggle_rf$Survived[kaggle_rf$Survived==1]<-0 
 kaggle_rf$Survived[kaggle_rf$Survived==2]<-1 
 
-write.csv(kaggle_rf,"kaggle_rf.csv", row.names = FALSE)
+write.csv(kaggle_rf,"../kaggle_rf.csv", row.names = FALSE)
 
 ```
 
@@ -1158,7 +1153,7 @@ kaggle_svm['Survived'] <- as.integer(unlist(kaggle_svm['Survived']))
 kaggle_svm$Survived[kaggle_svm$Survived==1]<-0 
 kaggle_svm$Survived[kaggle_svm$Survived==2]<-1 
 
-write.csv(kaggle_svm,"kaggle_svm.csv", row.names = FALSE)
+write.csv(kaggle_svm,"../kaggle_svm.csv", row.names = FALSE)
 
 ```
 
