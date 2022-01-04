@@ -11,6 +11,20 @@ En este proyecto se utiliza el conjunto de datos *Titanic - Machine Learning fro
 
 ## Ficheros
 
+- code: Carpeta con el código en R y las salidas que se generan
+    - PRA_2.Rmd: Contiene el código y el texto donde se desarolla todo el proyecto en RMarkdown. 
+    - PRA_2.html: Salida en formato html del código. 
+
+Datasets:
+- train.csv: Conjunto con los datos de entrenamiento originales. 
+- test.csv: Conjunto con los datos de test originales. 
+- kaggle_rl.csv : Archivo con la predicción realizada mediante Regresión Logística
+- kaggle_c50.csv: Archivo con la predicción realizada con el algoritmo C5.0
+- kaggle_rf.csv: Archivo con la predicción realizada con Random Forest
+- kaggle_svm.csv: Archivo con la predicción realizada con Support Vector Machine
+
+
+
 
 ## Conjunto de datos
 
