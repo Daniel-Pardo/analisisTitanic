@@ -1,0 +1,1194 @@
+---
+title: "Práctica 2 - Limpieza y análisis de datos"
+author: "Daniel Pardo Navarro"
+date: "04 Enero 2021"
+output:
+  
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+    highlight: default
+    number_sections: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(CGPfunctions)
+library(ggplot2)
+library(GGally)
+library(reshape2)
+library(knitr)
+library(faraway)
+library(questionr)
+library(ResourceSelection)
+library(pROC)
+
+library(nortest)
+library(stringr)
+library(VIM)
+library(grid)
+library(gridExtra)
+library(DescTools)
+library(questionr)
+library(caret)
+library(C50)
+library(randomForest)
+library(e1071)
+
+```
+
+
+******
+#  Descripción del dataset
+******
+
+El hundimiento RMS Titanic en 1912 es uno de los naufragios más conocidos de la historia. El Titanic era un transatlántico británico considerado insumergible que en el momento de finalizar su consrucción era el mayor barco de pasajeros del mundo. No obstante, en su viaje inaugural desde Southampton a Nueva York se hundió después de chocar con un iceberg durante la noche del 14 y la madrugada del 15 de abril de 1912. Desgraciadamente, no existían suficentes botes salvavidas para todas las personas que vijaban y murieron 1502 personas de las 2224 totales que había etre pasajeros y la tripulación.
+
+La suerte puede ser uno de los factores relacionados con sobrevivir al naugragio, sin embargo, algunos grupos de personas debido a sus características tenían más probablididades de sobrevivir que el resto. En esta práctica se utilizan los datos de las personas que viajaban en el barco para intentar responder a este hecho. Por lo tanto, la pregunta a la que se quiere dar respuesta es:
+
+<div align="center">*¿Qué tipo de personas tenían más probabilidades de sobrevivir?*</div>
+
+En este proyecto se utiliza el conjunto de datos *Titanic - Machine Learning from Disaster* que contiene muestras etiquetadas con las caracterísitcas de las personas y si sobrevivió al naufragio o no. En este sentido, el dataset que se utiliza corresponde a una competición activa de Kaggle que se encuentra disponible en https://www.kaggle.com/c/titanic/. Contamos con dos subdataset uno para realizar el entrenamiento con 891 muestras y otro para el test con 418 muestras. Cabe tener presente que el conjunto de test no contiene la eitqueta de la clase objetivo y la predicción de este conjunto debe realizarse directamente en la web de Kaggle.
+
+El conjunto de datos cuenta con las siguiente 12 variables: 
+
+**PassengerId**
+    Identificador único para cada registro de un pasajero. 
+    
+**Survived**
+    Variable objetivo para clasificar la supervivencia de los pasajeros donde 0 = No sobrevivió y 1 = Sobrevivió
+    
+**Pclass**
+    Clase del billete del pasajero donde 1 = Primera clase, 2 = Segunda clase, 3 = tercera clase. 
+    
+**Name**
+    Nombre del pasajero. 
+    
+**Sex**
+    Sexo del pasajero que puede ser male (masculino) o female (femenino).
+    
+**Age**
+    Edad del pasajero en años. En caso de ser menor que 1 la edad es fraccionaria. Por ejemplo, en el caso de  0.42 sería 0.42*365=153,3 días. La edad, por lo tanto, podría ser desde 152/365 hasta 155/365
+    
+**SibSp**
+    Número de hermanos o cónyuges que viajan con cada pasajero.
+    
+**Parch**
+    Número de padres/niños que viajan. Si un niño viaja con una cuidadora este número será = 0.
+    
+**Ticket**
+    Número de billete. 
+    
+**Fare**
+    Cantidad de dinero que ha pagado el pasajero por el viaje.
+    
+**Cabin**
+    Número de cabina del pasajero.
+    
+**Embarked**
+    Puerto desde donde se embarcó / abordó el pasajero en particular donde C = Cherbourg, Q = Queenstown, S = Southampton
+
+Para este tipo de problema debemos realizar un modelo supervisado ya que tenemos las muestras previamente etiquetadas con el resultado final en base a si la persona sobrevivió al naufragio o falleció. Concretamente, al ser la variable objetivo discreta y dicotómica (con dos opciones) el problema consiste en dada una muestra nueva predecir a qué clase pertenece. Por lo tanto, deberemos generar un modelo supervisado de clasificación. 
+
+
+******
+# Integración y selección de los datos de interés a analizar
+******
+
+En este caso tenemos dos conjuntos de datos ya definidos: uno para realizar el entrenamiento y otro para el test. En este aspecto, las muestras del conjunto de test no se pueden cambiar por otras ya que la validación se debe realizar en la plataforma Kaggle sobre estas muestras concretas. No obstante, para realizar el proceso de limpieza y análisis es conveniente tratar los datos como un único conjunto por lo que los uniremos. 
+
+En primer lugar cargamos los dos conjuntos de datos.
+
+```{r}
+datos_train<-read.csv("train.csv", sep=",",na.strings = "NA")
+```
+
+```{r}
+datos_test<-read.csv("test.csv", sep=",",na.strings = "NA")
+
+```
+
+A continuación, mostramos la estructura general de los dos conjuntos. 
+
+```{r}
+str(datos_train)
+```
+
+```{r}
+str(datos_test)
+```
+
+Vemos como del conjunto de entrenamiento se cargan 891 observaciones y 12 variables mientras que en le conjunto de test tenemos 418 observaciones y 11 variables ya que falta la variable *Survived* con la etiqueta de la clase. 
+
+El siguiente paso consiste en guardar en una variable las etiquetas que tenemos en el conjunto de datos de entrenamiento para poder eliminarlas del dataset. 
+
+```{r}
+etiquetas <- datos_train["Survived"]
+
+datos_train["Survived"] <- NULL
+```
+
+Finalmente, guardamos los identificadores de las muestras del conjunto de test para poder saber las muestras concretas que pertenecen a este conjunto. 
+
+```{r}
+id_test <- datos_test["PassengerId"]
+```
+
+Y unimos los dos conjuntos de datos utilizando la funsión *rbind.* 
+
+```{r}
+datos<-rbind(datos_train, datos_test)
+```
+
+De esta forma tenemos un único dataset con 11 atributos y que contiene todas las muestras disponibles. Además, en la variable *etiquetas* hemos guardado la clase de las muestras del conjunto de entrenamiento mentras que en la variable *id_test* tenemos el identificador de las muestras del conjunto de test. Es necesario conocer el identificador de estas muestras para poder dividir los datos de forma adecuada en la fase de entrenamiento.
+
+Por último, podemos descartar de entrada algunos atributos que no van a ser relevantes por la información que contienen antes de pasar a la siguiente fase. En este sentido, eliminamos del conjunto de datos la variable *Ticket*, que contiene el identificador del billet, ya que no aporta información relevante para resolver el problema. El resto de variables deberán ser estudiadas con mayor detenimiento para poder determinar su utilidad en la fase de análisis. 
+
+```{r}
+datos["Ticket"] <- NULL
+```
+
+
+******
+# Limpieza de los datos
+******
+
+En primer lugar hacemos una visualización de los datos en forma de tabla para tener un primer contacto con la información que contiene. En este caso, la primera fila contiene los nombres de las cabaceras de cada variable mientras que cada fila representa una observación con los diferentes valores medidos.
+
+```{r}
+head(datos)
+```
+
+
+A continuación, volvemos a visualizar la estructura con los dos conjuntos unidos y observamos que hay un total de 1309 observaciones y 10 variables. El tipo de datos de las variables es de tipo entero (4 variables), decimal (2 variables) y string (4 variables). En este conjunto no tenemos la variable objetivo que se debe aprender a predecir.
+
+
+```{r}
+str(datos)
+```
+
+Finalmente, mostramos el resumen con los valores estadísticos principales de cada variable del conjunto de datos.
+
+```{r}
+summary(datos)
+```
+## Recodificación de variables
+
+Podemos ver que en el conjunto de datos hay variables categóricas y variable nuéricas. Respecto de las variables categóricas, que son *Sex* y *Embarked*, están codificadas en forma de string. Dependiendo del tipo de algoritmo que se quiere utilizar se requiere que las variables sean numéricas. Por este motivo, en primer lugar vamos a crear variables numéricas adicionales que contengan la misma información que las variables categóricas. 
+
+En primer lugar, se codifica la variable original *Sex* que presenta la siguiente distribución.
+
+```{r}
+table(datos$Sex)
+```
+
+Se crea una nueva variable llamada *Sex_num* donde *male* será 1 y *female* 0.
+
+```{r}
+datos["Sex_num"]<-datos["Sex"]
+
+datos$Sex_num[datos$Sex_num == "male"] <- 1
+datos$Sex_num[datos$Sex_num == "female"] <- 0
+
+datos$Sex_num <- as.numeric(datos$Sex_num)
+
+```
+
+Comprobamos el resultado. 
+
+```{r}
+table(datos$Sex_num)
+```
+
+En la variable *Embarked* observamos que hay valores perdidos, por lo que trataremos este caso más adelante. 
+
+```{r}
+table(datos$Embarked)
+```
+
+En cuanto a la variable *Name* observamos que contiene el nombre de los pasajeros. En principio, esta información no sería relevante para el análisis. Sin embargo, a cada nombre de pasajero se le asigna la abreviatura de un tipo de tratamiento junto a su nombre. Esta información puede ser relevante porque puede denotar una clase social como por ejemplo el tratamietno de 'Sir'. Por lo tanto,  se elimina el nombre, pero manteniendo la etiqueta de este tratamiento que se le da a la persona en el conjunto de datos.  
+
+
+```{r}
+datos["Name"] <- str_extract(datos["Name"][,1],"[^\\. ]*\\.")
+```
+
+A continuación mostramos la distribución de las etiquetas que se han extraido de los nombres. 
+
+```{r}
+table(datos["Name"] )
+```
+
+Y observamos que no hay valores perdidos. 
+
+```{r}
+sum(is.na(datos["Name"]))
+```
+
+Vemos que la mayoría de los tratamientos que reciben las personas son Mr (757), Miss (260), Mrs (197) y Master(61). El resto de categórias son poco frecuentes y en muchas ocasiones solo hay un único pasajero con ella. Por este motivo, podemos agruparlas o incluirlas en algunas de las anteriores. Creamos dos nuevas categorías, una para los oficiales del barco y otra para la aristocracia e incluimos los grupos con pocas muestras en una categoría análoga. Finalmente, mostramos la nueva distribución.
+
+```{r}
+
+datos$Name[datos$Name == "Capt."] <- "Oficial" #capitan
+datos$Name[datos$Name == "Col."] <-  "Oficial" #coronel
+datos$Name[datos$Name == "Countess."] <- "Aristocracia" #condesa
+datos$Name[datos$Name == "Don."] <- "Aristocracia" #honorifico
+datos$Name[datos$Name == "Dona."] <- "Aristocracia" #honorifica
+datos$Name[datos$Name == "Dr."] <- "Oficial" #doctor
+datos$Name[datos$Name == "Jonkheer."] <- "Aristocracia" #nobleza paises bajos
+datos$Name[datos$Name == "Lady."] <- "Aristocracia" 
+datos$Name[datos$Name == "Major."] <- "Oficial" 
+datos$Name[datos$Name == "Mlle."] <- "Miss." #mademoiselle, señorita
+datos$Name[datos$Name == "Mme."] <- "Mrs." #madame
+datos$Name[datos$Name == "Ms."] <- "Mrs."
+datos$Name[datos$Name == "Rev."] <- "Oficial" #reverendo
+datos$Name[datos$Name == "Sir."] <- "Aristocracia"
+
+table(datos["Name"] )
+
+```
+
+Para facilitar el proceso de análisis, convertimos las categorías obtenidas en una nueva variable númerica que llamaremos *Name_num* de la siguiente forma.
+
+
+```{r}
+datos["Name_num"]<-datos["Name"]
+
+datos$Name_num[datos$Name_num == "Aristocracia"] <- 0
+datos$Name_num[datos$Name_num == "Master."] <- 1
+datos$Name_num[datos$Name_num == "Miss."] <- 2
+datos$Name_num[datos$Name_num == "Mr."] <- 3
+datos$Name_num[datos$Name_num == "Mrs."] <- 4
+datos$Name_num[datos$Name_num == "Oficial"] <- 5
+
+
+datos$Name_num <- as.numeric(datos$Name_num)
+
+```
+
+## Valores perdidos
+
+A continuación , obervamos los estadísticos de valores perdidos. 
+
+```{r}
+colSums(is.na(datos))
+colSums(datos=="")
+
+```
+
+Podemos ver que las variables que tienen algún registro con valores perdidos son *Age*, *Fare*, *Cabin* y *Embarked*. Entre estas variables destaca el caso de *Cabin* donde hay 1014 valores perdidos del total de 1309 muestras (77%) lo que supone una gran cantidad. Por este motivo, se decide eliminar esta variable directamente.
+
+```{r}
+datos["Cabin"] <- NULL
+```
+
+Para el caso de *Embarked*, al tratarse de una variable categórica, asignaremos la etiqueta más común a los dos registros donde no tenemos la información. Para ello, en primer lugar, podemos ver la distribución de las categorías. 
+
+```{r}
+table(datos$Embarked)
+```
+Como podemos ver, la categória más frecuente con mucha diferencia respecto del resto es *S*, es decir, el puerto de Southampton. ASignamos esta categoría en los dos registros que no conocemos la información y comprobamos que se realiza el proceso correctamente. 
+
+```{r}
+datos$Embarked[datos$Embarked == ""] <- "S"
+table(datos$Embarked)
+```
+El siguiente paso consiste en crear una nueva variable llamada *Embarked_num* donde *c* será 0, *Q* será 1 y *S* será 2.
+
+```{r}
+datos["Embarked_num"]<-datos["Embarked"]
+
+datos$Embarked_num[datos$Embarked_num == "C"] <- 0
+datos$Embarked_num[datos$Embarked_num == "Q"] <- 1
+datos$Embarked_num[datos$Embarked_num == "S"] <- 2
+
+datos$Embarked_num <- as.numeric(datos$Embarked_num)
+
+```
+
+Comprobamos el resultado. 
+
+```{r}
+table(datos$Embarked_num)
+```
+
+En la variable *Fare*, que contiene el coste del billete, tenemos un único registro en el que no conocemos este valor. En este caso, al tratarse de una variable numérica y de un único caso desconocido, se decide imputar el valor de la media de todos los registros pero filtrando por el tipo de clase en el que viaja ya que no es la misma la media de los billetes de primera clase y la de tercera. Por lo tanto, buscamos el registro que tiene un valor NA, imputamos el valor de la media y comprobamos que el proceso se realiza de forma correcta. 
+
+```{r}
+datos$Fare[which(is.na(datos$Fare))] <- mean(datos$Fare[which(datos$Pclass == datos$Pclass[which(is.na(datos$Fare))])], na.rm = TRUE)
+sum(is.na(datos$Fare))
+
+```
+No obstante, también hay valores cuyo coste el billete es de 0.
+
+```{r}
+length(which(datos$Fare == 0))
+
+```
+
+Estos valores también se pueden considerar como valores perdidos. Por lo tanto, realizamos una imputación utilizando la media igual que en el caso anterior.
+
+```{r}
+
+datos$Fare[which(datos$Fare == 0 & datos$Pclass == 1)] <- mean(datos$Fare[which(datos$Pclass == 1)], na.rm = TRUE)
+datos$Fare[which(datos$Fare == 0 & datos$Pclass == 2)] <- mean(datos$Fare[which(datos$Pclass == 2)], na.rm = TRUE)
+datos$Fare[which(datos$Fare == 0 & datos$Pclass == 3)] <- mean(datos$Fare[which(datos$Pclass == 3)], na.rm = TRUE)
+
+length(which(datos$Fare == 0))
+
+```
+
+Por último, en la variable *Age* encontramos un total de 263 registros con este valor perdido. Se trata de una cantidad considerable, pero no parece una buena idea eliminar este aributo ya que contiene información muy valiosa para poder encontrar patrones de superviviencia en función de la edad. Por otro lado, tampoco es recomendable eliminar estos registros debido a la poca cantidad de muestras totales con las que se cuenta. Por lo tanto, en este caso se decide utilizar un método de imputación de valores perdidos más sofisticado. Como método de imputación se utiliza el algoritmo de KNN disponible en la libería VIM.
+
+El algoritmo utiliza el resto de variables del conjunto de datos para imputar los valores perdidos de una variable concreta. En este caso no tiene sentido utilizar todas las variables disponibles ya que, por ejemplo, el número de identificador de la muestra no contiene información relevante o tenemos variables duplicadas al convertir las variables categóricas codificadas en forma de string en numéricas. Por ello, generamos un subdataset con las variables a partir de las cuales el algoritmo debe imputar los valores perdidos de *Age*. En este caso utilizamos las variables, *SibSp*, *Parch*, *Fare*, *Name_num* y *Embarked_num*.
+
+```{r}
+subdataset <-data.frame(datos$Age, datos$SibSp, datos$Parch, datos$Fare, datos$Name_num, datos$Embarked_num) #creamos un subdataset con las variables mencionadas
+
+```
+
+Realizamos el proceso de imputación de la variable *Age* en función del resto. Al utilizar esta función se obtiene el dataset original con valores imputados en los campos donde había valores perdidos y una variable lógica adicional para cada variable original indicando con un TRUE si se ha imputado un valor sobre ese campo. Una vez se han imputado los valores en el subconjunto generado actualizamos la variable del conjunto original con estos nuevos datos. Para mantener la consistencia respecto del conjunto de datos original, redondeamos todos los valores imputados para que sea un valor entero. 
+
+
+```{r}
+subdataset <- kNN(subdataset, variable = "datos.Age") #imputamos sobre la variable Age
+datos$Age[which(is.na(datos$Age))]<- as.integer(subdataset$datos.Age[which(subdataset$datos.Age_imp==TRUE)])
+
+```
+
+
+Por último, comprobamos que ya no tenemos valores perdidos en ninguna de las variables del dataset. 
+
+```{r}
+colSums(is.na(datos))
+colSums(datos=="")
+
+```
+
+Por lo que respecta a la variable *PassengerId*, comprobamos que no haya ningún identificador repetido para asegurar la consistencia de los datos. En este caso también observamos que no hay identificadores repetidos. 
+
+
+```{r}
+length(unique(datos$id))
+```
+## Valores outliers
+
+Por lo que respecta a los valores outliers, ya hemos revisado anteriormente alguna variable como *Name* (o *Name_num*) donde hemos modificado las categorías. 
+
+
+```{r}
+table(datos$Name)
+
+bp<- barplot(table(datos$Name),main="Distribución de Name", col=c("lightgreen", "orange", "red", "pink", "blue", "purple"), names.arg=c("Aristocracia", "Master", "Miss", "Mr", "Mrs", "Oficial"),ylim = c(0,table(datos$Name)[[1]]+900))
+
+text(bp, table(datos$Name)+30, paste0(round(table(datos$Name)/sum(table(datos$Name)),2), "%"), font=2)
+```
+
+En el resto de variables categóricas tampoco se observan valores outliers. Por ejemplo, en *Pclass* observamos 3 categorías y que la mayor parte de los pasajeros pertecenen a tercera clase.
+
+```{r}
+table(datos$Pclass)
+
+bp<- barplot(table(datos$Pclass),main="Distribución de Pclass", col=c("lightgreen", "orange", "red"), names.arg=c("1", "2", "3"),ylim = c(0,table(datos$Pclass)[[1]]+500))
+
+text(bp, table(datos$Pclass)+30, paste0(round(table(datos$Pclass)/sum(table(datos$Pclass)),2), "%"), font=2)
+```
+
+En cuanto al sexo de los pasajeros, vemos que hay prácticamente el doble de hombres que de mujeres. 
+
+```{r}
+table(datos$Sex)
+
+bp<- barplot(table(datos$Sex),main="Distribución de Sex", col=c("lightgreen", "orange"), names.arg=c("female", "male"),ylim = c(0,table(datos$Sex)[[1]]+500))
+
+text(bp, table(datos$Sex)+30, paste0(round(table(datos$Sex)/sum(table(datos$Sex)),2), "%"), font=2)
+```
+
+En la variable *SibSp* observamos como lo habitual es que viajen con 0 ó 1 hermano o conyugue. Sin embargo, existen casos donde viajan hasta con 8. No obstante, aunque pueden ser valores extremos estos datos se entienden que son correctos y debido a la información que pueden aportar al modelo no se modifican. En caso de que generen ruidos y dificulten el aprendizaje del modelo se podrían cambiar por ejemplo al valor 1 ya que es el más cercano.
+
+
+```{r}
+table(datos$SibSp)
+
+bp<- barplot(table(datos$SibSp),main="Distribución de SibSp", col=c("lightgreen", "orange", "red", "pink", "blue", "purple", "brown"), names.arg=c("0", "1", "2", "3", "4", "5", "8"),ylim = c(0,table(datos$SibSp)[[1]]+150))
+
+text(bp, table(datos$SibSp)+30, paste0(round(table(datos$SibSp)/sum(table(datos$SibSp)),2), "%"), font=2)
+```
+
+De forma similar al caso anterior para la variable *Parch* los valores habituales son 0, 1 y 2. 
+
+```{r}
+table(datos$Parch)
+
+bp<- barplot(table(datos$Parch),main="Distribución de Parch", col=c("lightgreen", "orange", "red", "pink", "blue", "purple", "yellow", "brown"), names.arg=c("0", "1", "2", "3", "4", "5", "6", "9"),ylim = c(0,table(datos$Parch)[[1]]+150))
+
+text(bp, table(datos$Parch)+30, paste0(round(table(datos$Parch)/sum(table(datos$Parch)),2), "%"), font=2)
+```
+
+En el caso de la variable *Embarked* podemos ver que la mayoría de pasajeros embarcaron en el puerto de Southampton. 
+
+```{r}
+table(datos$Embarked)
+
+bp<- barplot(table(datos$Embarked),main="Distribución de Embarked", col=c("lightgreen", "orange", "red"), names.arg=c("0", "1", "2"),ylim = c(0,table(datos$Embarked)[[1]]+800))
+
+text(bp, table(datos$Embarked)+30, paste0(round(table(datos$Embarked)/sum(table(datos$Embarked)),2), "%"), font=2)
+```
+
+En cuanto a la variable *Age* podemos ver que la mayor parte de los pasajeros se encuentra entre los 20 y 40 años. A partir de los 65 años podemos ver en el diagrama de cajas que se identifican como valores outliers. En este sentido, determinaremos que son valores extremos aquellos valores que superen 1,5 veces el rango intercuartil. Aunque sabemos que estos valores son correctos, puden producir errores de clasificación y modelos de menor calidad. 
+
+```{r, figures-side1, fig.show="hold", out.width="50%"}
+hist(datos$Age, main="Histograma Age", xlab ="Age", ylab = "Frecuencia", labels = paste0(round(hist(datos$Age, plot = FALSE)$counts / length(datos$Age) * 100, 1), "%"), ylim=c(0,length(datos$Age)*0.25))
+boxplot(datos$Age,main="Diagrama de caja Age", col="gray")
+
+```
+
+Adicionalmete, podemos discretizar esta varible agrupando los datos según la edad. Para ello creamos una variable adicional llamada *Age_cat* creando 6 intervalos llamados "Niño","Adolescente", "Joven", "Adulto", "Mayor" y "Muy mayor" que mantengan representatividad de los datos originales.
+
+```{r}
+datos$Age_cat<-cut(datos$Age,  breaks = c(0, 10, 18, 30, 40, 50, 100), labels = c("Niño","Adolescente", "Joven", "Adulto", "Mayor", "Muy mayor"))
+table(datos$Age_cat)
+```
+Para el tratamiento de valores outliers se decide asignar el valor máximo del limite superior calculado a los valores outliers. De esta forma podemos mantener todos los registros mitigando el efecto que los valores extremos puede causar en la calidad del modelo de clasificación.
+
+```{r}
+superior <- quantile(datos$Age)[4] + (1.5 * IQR(datos$Age)) #límite superior
+datos$Age[which(datos$Age > superior)] <- superior #modificamos por el límite superior
+```
+
+
+En la variable *Fare* sucede lo mismo que en le cas anterios ya que encotramos costes de billetes muy elevados de manera excepcional. 
+
+```{r, figures-side2, fig.show="hold", out.width="50%"}
+hist(datos$Fare, main="Histograma Fare", xlab ="Fare", ylab = "Frecuencia", labels = paste0(round(hist(datos$Fare, plot = FALSE)$counts / length(datos$Fare) * 100, 1), "%"), ylim=c(0,length(datos$Fare)*1.01))
+boxplot(datos$Fare,main="Diagrama de caja Fare", col="gray")
+
+```
+
+
+Discretizamos esta varible agrupando los datos según el coste. Para ello creamos una variable adicional llamada *Fare_cat* creando 4 intervalos llamados "Bajo","Medio", "Alto" y "Muy alto" que mantengan representatividad de los datos originales.
+
+```{r}
+datos$Fare_cat<-cut(datos$Fare,  breaks = c(0, 10, 40, 100, 1000), labels = c("Bajo","Medio", "Alto", "Muy alto"))
+table(datos$Fare_cat)
+
+```
+
+Se realiza el mismo proceso de tratamiento que para la variable *Age*.
+
+```{r}
+superior <- quantile(datos$Fare)[4] + (1.5 * IQR(datos$Fare)) #límite superior
+datos$Fare[which(datos$Fare > superior)] <- superior #modificamos por el límite superior
+```
+
+Mostramos el diagrama de cajas de estas dos variables y vemos que ya no hay valores outiers. 
+
+```{r, figures-side3, fig.show="hold", out.width="50%"}
+
+boxplot(datos$Age,main="Diagrama de caja Age", col="gray")
+
+boxplot(datos$Fare,main="Diagrama de caja Fare", col="gray")
+
+```
+
+******
+# Análisis de los datos
+******
+
+En este punto, se han preprocesado todas las variables y hemos revisado que los datos se han registrado correctamente sin duplicados ni otros tipos de errores. Tampoco existían valores nulos y se ha hecho una corrección de valores outliers para que no distorsionen los resultados. En este sentido, se ha modificado el valor outlier por el valor del límite para poder mantener todas las muestras. Si tuvieramos un conjunto de datos mucho más grande podríamos haber descartado definitivamente estos registros.
+
+## Pruebas de normalidad
+
+En primer lugar, realizamos pruebas de normalidad de las variables numéricas de intererés *Age* y *Fare*. Utilizamos un histograma para visualizar la distribución y el gráfico Q-Q que sirve para diagnosticar la desviación de los datos de la muestra en relación con una población normal. Para ello, podemos utilizar las funciones *qqnorm* que representa las observacionesd de la muestra y *qqline* que genera una línea para la distribución normal teórica. Con la inspección visual observamos que la distribución no parece ser normal. 
+
+```{r, figures-side4, fig.show="hold", out.width="50%"}
+hist(datos$Age)
+
+qqnorm(datos$Age, col="darkgrey", main="Age")
+qqline(datos$Age, col="red")
+```
+Para confirmar lo que obervamos en la inspección visual podemos utilizar el test de Lilliefors que es una prueba de normalidad basada en la prueba de Kolmogorov-Smirnov con la corrección Lilliefors y se utiliza para probar que los datos provienen de una población con distribución normal. En este sentido, la hipótesis nula indica que la distribución es normal, por lo que si podemos rechazar esta hipótesis la distribución de la variable no sería normal. Para ello, utilizamos la función *lillie.test* de la libreria *nortest*. Esta función retorna un valor *D*, que es el resultado de las ecuaciones que se utiliza en la prueba y que permite calcular la probablidad, y el *p-value*, que se puede entender como el error que se cometería en caso de rechazar la hipótesis nula. Por lo tanto, para poder rechazar la hipótesis nula este valor debe ser pequeño y, en concreto, por debajo de 0.05. En este caso observamos que el *p-value* es orácticamente 0 por lo que podemos rechazar la hipotesis nula y esto indica que la distribucuión de los datos no es normal como hemos podido apreciar visualmente. 
+
+```{r}
+lillie.test(datos$Age)
+```
+
+Podemos utilizar transformación o familia de transformaciones de Box-Cox que es una técnica que se utiliza para poder utilizar pruebas estadísticas paramétricas sobre conjuntos de datos que no cumplen con las hipótesis que éstas requieren. En este sentido, la transformación aproxima la distribución de los datos a una distribución normal y con una varianza constante. Sin embargo, al utilizar este método la distribución obtenida sigue sin ser normal. 
+
+```{r}
+bc_age <- BoxCox(datos$Age, lambda = BoxCoxLambda(datos$Age))
+lillie.test(bc_age)
+
+```
+Repetimos el proceso para la variable *Fare* donde a nivel visual se muestra que la distribución no es normal. 
+
+```{r, figures-side5, fig.show="hold", out.width="50%"}
+hist(datos$Fare)
+
+qqnorm(datos$Fare, col="darkgrey", main="Age")
+qqline(datos$Fare, col="red")
+```
+
+Con la prueba de normalidad de Kolmogorov-Smirnov comprobamos este hecho. 
+
+```{r}
+lillie.test(datos$Fare)
+```
+Tampoco con la transformación de Box-Cox obtenemos una distribución normal. 
+
+```{r}
+bc_fare <- BoxCox(datos$Fare, lambda = BoxCoxLambda(datos$Fare))
+lillie.test(bc_fare)
+
+```
+Por lo tanto, deberemos asumir que estas dos variables no se ajustan a una distribución normal. El siguiente paso que debemos hacer es volver a dividir el conjunto de datos en función del conjunto de entrenamiento y de test. Este paso se debería hacer más adelante justo antes de generar el modelo. Sin embargo, para analizar los datos nos centraremos en las relaciones con la variable objetivo de supervivencia al naufragio. Este variable, como ya hemos dicho, solo estaba disponible en el conjunto de entrenamiento de los datos originales. Por lo tanto, volvemos a dividir los datos una vez realizado todo el procesado respetando las muestras que había en cada caso y añadiento las etiquetas en el caso del conjunto de entrenamiento.  
+
+
+```{r}
+datos_train <- datos[-unlist(id_test),]
+datos_train$survived <- etiquetas[,]
+datos_test <- datos[unlist(id_test),]
+```
+
+
+## Contraste de hipótesis
+
+
+Mostramos el resumen de los estadísticos dataset sobre el que trabajaremos *datos_train*.
+
+```{r}
+summary(datos_train)
+```
+
+Mostramos la distribución de la clase objetivo para ver si las muestras están en equilibradas. Encontramos que hay 549 casos donde los pasajeros no sobreviven y 342 que sí lo hacen. Si bien estos datos no son exactamente igual, se puede considerar que la distribución es suficiente representativa en cada caso para poder realizar los distintos modelos de clasificación.
+
+
+```{r}
+table(datos_train$survived)
+
+bp<- barplot(table(datos_train$survived),main="Distribución de la clase objetivo", col=c("lightgreen", "orange"), names.arg=c("No sobrevive", "Sobrevive"),ylim = c(0,table(datos_train$survived)[[1]]+50))
+
+text(bp, table(datos_train$survived)+20, paste0(round(table(datos_train$survived)/sum(table(datos_train$survived)),2), "%"), font=2)
+
+```
+
+
+A continuación podemos realizar un primer análisis para conocer si el sexo influyó o no en sobrevivir al naufragio. Para ello se plantea realizar un test de hipótesis con la siguiente pregunta de investigación:
+
+*¿La proporción de mujeres que sobrvieron al naufragió es más grande que la de los hombres?*
+
+En primer lugar se realiza un análisis visual utilizando las variables *Sex_num* y *Survived* que permitirá hacer la comparación. Creamos un dataframe a partir de estas variables para poder hacer un tratamiento de datos y eliminar los casos desconocidos. Finalmente, renombramos las etiquetas y mostramos los gráficos con los porcentajes. 
+
+
+```{r, figures-side6, fig.show="hold", out.width="50%"}
+#seleccionamos las variables
+hip1 <-data.frame(datos_train$Sex_num, datos_train$survived) #creamos un subdataset con las variables mencionadas
+
+#renombramos las etiquetas
+hip1$datos_train.Sex_num[hip1$datos_train.Sex_num==0]<-"Mujer" 
+hip1$datos_train.Sex_num[hip1$datos_train.Sex_num==1]<-"Hombre" 
+
+hip1$datos_train.survived[hip1$datos_train.survived==0]<-"No sobrevive" 
+hip1$datos_train.survived[hip1$datos_train.survived==1]<-"Sobrevive" 
+
+PlotXTabs2(hip1,  x=datos_train.Sex_num, y=datos_train.survived, results.subtitle=FALSE, legend.title = "Supervivencia", title="Supervivencia según el género",xlab="Género",  ylab = "Porcentaje", sample.size.label = FALSE)
+
+PlotXTabs2(hip1,  x=datos_train.survived, y=datos_train.Sex_num, results.subtitle=FALSE, legend.title = "Género", title="Supervivencia según el género",xlab="Supervivencia",  ylab = "Porcentaje", sample.size.label = FALSE)
+
+```
+
+
+Observando el gráfico de la izquierda que muestra la supervivencia de cada género podemmos ver que el 81% de los hombres no sobreviviern. Por lo que se refiere al caso de las mujeres, este dato baja hasta el 26% mientras que el 74% de las mujeres si que sobrevivieron, en comparación del 19% de los hombres. 
+
+El gráfico de la derecha muestra como se distribuye cada género según si sobrevive o no. Vemos que el 85% de las personas que no sobrevivieron fueron hombres. Sin embargo, entre las personas que sobrevivieron ocurre lo contrario ya que la mayoría son mujeres con un 68% de los casos. 
+
+Por lo tanto, basándonos en los datos expuestos y en la visualización de los gráficos podemos decir que la proporción de mujeres que sobrevivieron es mayor que la de los hombres. 
+
+Definimos p<sub>1</sub> como la proporcion de hombres que sobrevivieron y p<sub>2</sub> como la proporcion de mujeres que lo hicieron. En base a esto, las hipótesis se plantean de la siguiente forma:
+
+Hipótesis nula H<sub>0</sub>: p<sub>1</sub> = p<sub>2</sub>
+
+Hipótesis alternativa H<sub>1</sub>: p<sub>1</sub> < p<sub>2</sub>
+
+El test que aplicaremos será un contraste unilateral de dos muestras independientes sobre la proporción. Para ello utilizamos la función *prop.test*.
+
+```{r}
+
+#para cada genero seleccionamos la supervivencia
+hombres <-  hip1[hip1$datos_train.Sex_num=="Hombre",2]
+mujeres <-  hip1[hip1$datos_train.Sex_num=="Mujer",2]
+
+n_hombres <- length(hombres) #número de muestras hombres
+n_mujeres <- length(mujeres) #número de muestras mujeres
+
+p1 <- length(which(hombres=="Sobrevive"))/n_hombres #proporcion de hombres
+p2 <- length(which(mujeres=="Sobrevive"))/n_mujeres #proporcion de mujeres
+
+
+v1<-c(p1*n_hombres, p2*n_mujeres)
+v2<-c(n_hombres, n_mujeres)
+prop.test(v1, v2, alternative="less")
+```
+El *valor p* es prácticamente 0 por lo que es más pequeño que el valor 0.05 de significancia alfa. Por lo tanto, hay evidencia suficiente para rechazar la hipótesis nula y aceptar la hipótesis alternativa. Respondiendo a la pregunta de investigación la proporción de personas que sobrevivieron es menor para hombres respecto de las mujeres.
+
+La segunda hipótesis que podemos plantear es sobre el precio del billete y la supervivencia. 
+
+*¿El coste promedio del billete de las personas que sobrevivieron es superior al coste promedio del billete de las personas que no lo hicieron?*
+
+En primer lugar, seleccionamos los datos de la variable *Fare* según la supervivencia para crear dos conjuntos.
+
+```{r}
+no_sobreviven <- datos_train$Fare[which(datos_train$survived == 0)]
+sobreviven <- datos_train$Fare[which(datos_train$survived == 1)]
+```
+
+Hacemos una transformación logarítmica de las dos variables para poder visualizarlos en la misma escala.
+
+```{r, figures-side7, fig.show="hold", out.width="50%"}
+boxplot(log(sobreviven),main="Diagrama de caja coste Sobreviven", col="gray")
+
+boxplot(log(no_sobreviven),main="Diagrama de caja coste No Sobreviven", col="gray")
+```
+
+A simple vista no parecen haber grandes diferencias en la representación visual de los dos gráficos. En cuanto al tamaño de las cajas, que representan el 50% de los valores centrales de los datos, el rango de las personas que no sobreviven es un poco más bajo y también su límite superios es más pequeño. También se aprecián diferencias en donde se sitúa la mediana, en el caso de las personas que sobreviven en torno a la mitad y en el caso de las personas que no sobreviven por debajo. Esta mediana si situa en un valor más alto en el caso del coste del billete de las personas que sobrevivieron. 
+
+En este caso, siendo  μ<sub>1</sub> la media del coste de las personas que sobrevivieron y μ<sub>2</sub> la media del coste de las personas que no sobrevivieron, las hipótesis se plantean de la siguiente forma:
+
+Hipótesis nula H<sub>0</sub>: μ<sub>1</sub> = μ<sub>2</sub>
+
+Hipótesis alternativa H<sub>1</sub>: μ<sub>1</sub> > μ<sub>2</sub>
+
+La varianza poblacional no es conocida por lo que debemos hacer un contraste unilateral de dos muestras independientes sobre la media con varianzas desconocidas. No obstante, para aplicar el estadístico adecuado hay que comprobar si las varianzas de las dos poblaciones son iguales. Por lo tanto, debemos realizar antes el test de igualdad de varianzas (bilateral). Podemos asumir normalidad porque la muestra tiene un tamaño superior a 30 y se aplicaría el teorema del límite central.
+
+Teniendo en cuenta que σ<sub>1</sub> es la varianza de la muestra *sobreviven* y σ<sub>2</sub> de la muestra *no_sobreviven* la hipótesis nula y la alternativa para el test de varianzas son:
+
+H<sub>0</sub>: σ<sub>1</sub><sup>2</sup> = σ<sub>2</sub><sup>2</sup>
+
+H<sub>1</sub>: σ<sub>1</sub><sup>2</sup> ≠  σ<sub>2</sub><sup>2</sup>
+
+Aplicamos el estadístico F test para comparar dos varianzas con la función *var.test*. 
+
+```{r}
+var.test(sobreviven, no_sobreviven, alternative = "two.sided", conf.level = 0.95)
+```
+
+El *valor p*, que es prácticamente 0, es mas bajo que el nivel de significancia alpha. De esta forma, hay evidencia suficiente para rechazar la hipótesis nula y aceptar la hipótesis alternativa. Por lo tanto, podemos aceptar que las varianzas no son iguales ya que hay evidencia suficiente para determinar que las varianzas de las muestras *sobreviven* y *no_sobreviven* son diferentes con un nivel de confianza del 95%. 
+
+En este punto, podemos determinar que debemos aplicar el test unilateral de dos muestras independientes sobre la media con varianzas desconocidas diferentes. PAra ello hacemos uso de la función Utilizamos la función *t.test*.
+
+```{r}
+t.test(sobreviven,no_sobreviven, var.equal=FALSE, paired=FALSE, alternative="greater", conf.level = 0.95)
+
+```
+
+El *valor p*, que es prácticamente 0, es mas bajo que el nivel de significancia alpha. De esta forma, hay evidencia suficiente para rechazar la hipótesis nula y aceptar la hipótesis alternativa. Por lo tanto, respondiendo a la pregunta de investigación podemos concluir que hay evidencia suficiente para afirmar que el coste promedio de los billetes de las personas que sobrevivieron es superior al coste promedio de las personas que no lo hicieron.
+
+## Independencia de las variables y relación con la varible objetivo
+
+Otra exploración a realizar es la independencia de las variables a partir del test Chi-cuadrado de Pearson que es una prueba no paramétrica para probar la independencia de dos variables. Por lo tanto, comprobaremos si existe asociación entre la variable dependiente *survived* y el resto de variables explicativas. Un resultado significativo de este test indica que existe asociación. Por lo tanto, la hipótesis nula implica independencia entre las variables (p>0,05) mientras que la hipótesis alternativa implica que no hay independencia o que las variables son dependientes (p<0,05). Para poder aplicar el test debemos construir la tabla de contingencia entre las variables que podemos hacer llamando a la función *table* con las dos variables y posteriormente llamamos a la función *chisq.test* que implementa el test Chi-cuadrado de Pearson sobre una tabla de contingencia.
+
+De forma fimilar, podemos utilizar el método de la V de Cramér (https://en.wikipedia.org/wiki/Cramér%27s_V) de la librería *DescTools*  para medir la relación entre las variables. Valores entre 0.1 y 0.3 indican que la asociación estadística es baja, entre 0.3 y 0.5 se puede considerar una asociación media y valores superiores a 0.5 indican una asociación estadística entre las variables alta.
+
+```{r}
+tc1 <- table(datos_train$survived,datos_train$Pclass)
+tc2 <- table(datos_train$survived,datos_train$Name)
+tc3 <- table(datos_train$survived,datos_train$Sex)
+tc4 <- table(datos_train$survived,datos_train$SibSp)
+tc5 <- table(datos_train$survived,datos_train$Parch)
+tc6 <- table(datos_train$survived,datos_train$Embarked)
+tc7 <- table(datos_train$survived,datos_train$Age_cat)
+tc8 <- table(datos_train$survived,datos_train$Fare_cat)
+
+resultado_chi = c(chisq.test(tc1)$p.value, chisq.test(tc2, simulate.p.value = TRUE)$p.value, chisq.test(tc3)$p.value, chisq.test(tc4, simulate.p.value = TRUE)$p.value,chisq.test(tc5, simulate.p.value = TRUE)$p.value, chisq.test(tc6)$p.value,chisq.test(tc7)$p.value, chisq.test(tc8)$p.value)
+
+resultado_v = c(CramerV(tc1), CramerV(tc2), CramerV(tc3),CramerV(tc4), CramerV(tc5), CramerV(tc6),CramerV(tc7), CramerV(tc8))
+
+print(resultado_chi)
+print(resultado_v)
+
+```
+
+
+Una vez que sabemos que las variables son dependiente podemos visualizar su relación respecto de la variable objetivo. 
+
+
+```{r}
+grid.newpage()
+plotClass<-ggplot(datos_train,aes(Pclass,fill=as.factor(survived)))+geom_bar() +labs(x="Class", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Pclass")
+
+plotName<-ggplot(datos_train,aes(Name,fill=as.factor(survived)))+geom_bar() +labs(x="Name", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Name")+theme(axis.text.x = element_text(angle = 90))
+
+plotbySex<-ggplot(datos_train,aes(Sex,fill=as.factor(survived)))+geom_bar() +labs(x="Sex", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Sex")
+
+plotbyAge<-ggplot(datos_train,aes(Age_cat,fill=as.factor(survived)))+geom_bar() +labs(x="Age", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Age")+theme(axis.text.x = element_text(angle = 90))
+
+grid.arrange(plotbyAge,plotName,plotbySex,plotClass,ncol=2)
+
+```
+
+Con la variable *Age* observamos que las categorías *Niño* y *Adolescente* tienen una mayor probabilidad de supervivencia. En este aspecto, la categoría donde se obervan un mayor porcentaje de muertes es *Joven.*
+
+Por lo que respecta a *Name*, que contiene el título de tratamiento de las personas, Vemos como es significativamente alto el nivel de muerte en la categoría *Mr* que se asocia con hombres joven y adultos. Por otro lado, las categorías *Miss* y *Mrs*, que son mujeres jovenes y adultas, y la categoría *Master*, que sin niños ya adolescentes, tienen un mayor porcentaje de supervivencia. 
+
+En cuanto a la variable Sex ya habíamos comentado anteriormente que la tasa de hombres que mueren es significativamente superior que las mujeres.
+
+Para la variable *Pclass* vemos como las personas de primera clase, en mayor medida, y de segunda clase tienen una probabilidad de supervivencia superior a los de tercera clase. Por lo tanto, este hecho se puede relacionar también con la conclusión a la que se había llegado respecto al coste del billete como un factor relevante para la supervivencia: a mayor coste del billete mayor posibilidad de sobrevivir. 
+
+En este sentido, podemos explorar la relación entre la clase, la edad y la supervivencia. En el siguiente gráfico podemos ver como en general en primera clase la supervivencia es mayor para todos los grupos de edad y facelle uno de los 3 niños que hay en este grupo. En segunda clase vemos como todos los niños sobrevevien y en resto de grupos de edades disminuye la supervivencia. Finnalmente, en tecera clase vemos como todos los grupos de edad tienen una supervivencia muy baja. Los niños tienen el porcentaje más elevado de este grupo, sin embargo, es bajo en comparación al mismo grupo de edad de las otras clases. 
+
+Si hacemos un gráfico similar sustituyendo la edad por el sexo también observamos algo similar. Las mujeres sobreviven en gran medida para los pasajeros de primera y segunda clase mientras que si son de tercera clase disminuye considerablemente. También se observa el sesgo que existe por clase para la supervivencia en general. 
+
+```{r, figures-side8, fig.show="hold", out.width="50%"}
+ggplot(data = datos_train,aes(x=Age_cat,fill=as.factor(survived)))+geom_bar(position="fill")+facet_wrap(~Pclass)+ggtitle("Pasajeros por Pclass, Age y relación con Survived")+theme(axis.text.x = element_text(angle = 90))+guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))
+
+ggplot(data = datos_train,aes(x=Sex,fill=as.factor(survived)))+geom_bar(position="fill")+facet_wrap(~Pclass)+ggtitle("Pasajeros por Pclass, Sex y relación con Survived")+theme(axis.text.x = element_text(angle = 90))+guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))
+```
+
+
+```{r}
+grid.newpage()
+plotSibSp<-ggplot(datos_train,aes(SibSp,fill=as.factor(survived)))+geom_bar() +labs(x="SibSp", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by SibSp")
+
+plotParch<-ggplot(datos_train,aes(Parch,fill=as.factor(survived)))+geom_bar() +labs(x="Parch", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Parch")
+
+plotbyFare<-ggplot(datos_train,aes(Fare_cat,fill=as.factor(survived)))+geom_bar() +labs(x="Fare", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Fare")
+
+plotbyEmbarked<-ggplot(datos_train,aes(Embarked,fill=as.factor(survived)))+geom_bar() +labs(x="Embarked", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Embarked")
+
+grid.arrange(plotbyFare,plotbyEmbarked, plotSibSp,plotParch, ncol=2)
+
+```
+
+Continuando con el análisis de las variables y su relación con la supervivencia, en la variable *Fare* se observa como a medida que el precio del billete es más elevado la tasa de supervivencia crece tal y como hemos visto en análisis anteriores. En este sentido, cuando el precio es muy alto el porcentaje de supervivencia es elevado mientras que cuando es bajo pasa lo contrario.
+
+En cuanto a la variable Embarked se observa que los pasajeros que embarcaron en el puerto de Southampton tienen un porcentaje de supervivencia más bajo. Esto probablmente se puede explicar en función del sexo o de la clase en la que viajaban los pasajeros que embarcaron en los diferentes puertos. 
+
+Finalmente, la variable *SibSp* muestra que los pasajeros que viajaban solos (clase 0) tienen un porcentaje de muerte superior al resto. De forma similar ocurre con la variable *Parch* donde la clase 0 obtiene una ayor representatividad de muerte. Dada esta observación y teniendo en cuenta que ambas variables miden de alguna forma si un pasajero viaja solo o acompañado parece razonable crear una nueva variable que las unifique y concentre esta información. 
+
+Para ello creamos una nueva variable llamada "Familia" donde 0 indicará que viaja solo y 1 que viaja acompañado. Para ello, sumamos los valores de las dos variables anteriores y recodificamos a 1 cuando el valor se más grande. Con esta nueva variable podemos observamos de forma más evidente que los pasajeros que viajaban solos tinen una tasa de muerte más elevada respecto de los que viajan en compañía. 
+
+
+```{r}
+datos_train$Familia<- datos_train$SibSp + datos_train$Parch #nueva variable train
+datos_test$Familia<- datos_test$SibSp + datos_test$Parch #nueva variable test
+
+datos_train$Familia[which(datos_train$Familia>1)] <-1 #recodficamos train
+datos_test$Familia[which(datos_test$Familia>1)] <-1 #recodficamos test
+
+
+ggplot(datos_train,aes(Familia,fill=as.factor(survived)))+geom_bar() +labs(x="Familia", y="Passengers")+ guides(fill=guide_legend(title=""))+ scale_fill_manual(values=c("black","#008000"))+ggtitle("Survived by Familia")
+
+```
+
+## Modelos de clasificación
+
+### Regresión logística
+
+Los modelos de regresión logísitca se caracterizan por tener una variable dependiente dicotómica y que sigue una distribución binomial, como es el caso de *survived*. Para crear el modelo de regresión logística hacemos uso de la función *glm* donde indicamos la variable dependiente en primer lugar y, a continuación, las independientes. En primer lugar generamos un modelo úicamente con la variable *Age*. Nos fijamos en el valor del estádistico que es -2.5137 y en que los *valores p* son próximos a 0. 
+
+No obstante, para decidir cuál es el mejor modelo generado debemos atender al Criterio de Información de Akaike (AIC) que se muestra. Se trata de una medida de calidad de un modelo estadístico para un conjunto de datos y permite seleccionar un modelo en base a este criterio. En este sentido, no proporciona una prueba de contraste de hipótesis por lo que no dice nada acerca de la calidad del modelo en sentido absoluto. La medida AIC recompensa la bondad del ajuste y penaliza si el número de parámetros estimados es muy grande para tratar de evitar el sobreajuste del modelo. De entre un conjunto de diferentes modelos la recomendación es seleccionar aquel que obtenga el valor mínimo de AIC. 
+
+
+```{r}
+modelo_rl1 = glm(formula = survived~Sex, data=datos_train, family=binomial(link=logit))
+summary(modelo_rl1)
+```
+
+A continuación, añadimos al modelo la variable *Pclass*. Observamos que el valor del estimador anterior no se modifica de forma significativa y pasa a -2.6434. Por lo tanto, podemos descartar que sea una variable de confusión. Podemos entender la variable de confusión como aquella que influye en el factor de interés y en la variable dependiente al mismo tiempo. Una de las formas de detectar una variable de confusión es ver si los parámetros estimados para el factor de interés cambian sustancialmente al introducir la covariable en el modelo, lo cual no pasa en este caso. Este modelo mejora respecto del anterior al obtener un valor de AIC más bajo. 
+
+```{r}
+modelo_rl2 = glm(formula = survived~Sex+Pclass, data=datos_train, family=binomial(link=logit))
+summary(modelo_rl2)
+```
+Añadimos *Age* al modelo. Vemos como los estimadores se mantienen más o menos estables con *p-values* muy pequeños. Sin embargo, este modelo es peor en función del valor de AIC. 
+
+```{r}
+modelo_rl3 = glm(formula = survived~Sex+Pclass+Age, data=datos_train, family=binomial(link=logit))
+summary(modelo_rl3)
+```
+Sin embargo, si al modelo anterior añadimos la variable de interés *Name* al modelo vemos como mejora con un valor de AIC de 791.71 siendo este el mejor modelo generado.
+
+```{r}
+modelo_rl4 = glm(formula = survived~Sex+Pclass+Age+Name, data=datos_train, family=binomial(link=logit))
+summary(modelo_rl4)
+
+```
+
+Otro método habitual para determinar el mejor modelo es la Cross Validation para entrenarlo. Con este método el conjunto de datos se divide en *k* subconjuntos del mismo tamaño y mutuamente exclusivos. A continuación, se realiza un entrenamiento *k* veces, de forma que se utiliza uno de los subconjuntos *k* en cada ocasión diferente para evaluar el modelo y el resto de los datos para entrenarlo. Utilizamos la librearía *caret* para crear los *folds* con un valor de *k = 10*. Como métrica de evaluación haremos uso de la métrica *accuracy* que nos indica en términos generales el porcentaje de acierto de las muestras clasificadas bien respecto del total ya que es la que se utiliza en la competición de Kaggle
+
+
+```{r}
+folds <- createFolds(datos_train$survived, k = 10)
+```
+
+A continuación entreamos los 4 modelos creados anteriormente. Para ello definimos la formula de cada modelo para pasarla a la función en cada caso y obtener el valor general de la métrica accuracy. 
+
+```{r}
+
+RegresionLogistica <- function(x, form){
+  
+  accuracy_tot = 0
+  
+  for (i in x){
+    #creamos los folds
+    train_fold = datos_train[-i,]
+    test_fold = datos_train[i,]
+    
+    #creamos el modelo
+    modelo_rl = glm(formula = form, data=train_fold, family=binomial(link=logit))
+    
+    #Al tratarse de un modelo de regresión logística los valroes que se obtienen estáne en el intervalo [0,1]
+    prediccion = predict(modelo_rl, test_fold,  type = 'response')
+  
+    #Para obtener una salida binaria redondeamos el valor obtenido. 
+    prediccion = round(prediccion) 
+
+    #cramos la matriz de confusión
+    t = table(test_fold$survived, prediccion)
+    
+    #calculamos las métricas, en este caso accuracy
+    TP = t[1,1]
+    TN = t[2,2]
+    FP = t[2,1]
+    FN = t[1,2]
+    
+    accuracy = (TP+TN)/(TP+TN+FP+FN)*100
+    
+    accuracy_tot = accuracy_tot + accuracy
+  }
+  
+  return(round(accuracy_tot/length(x),digits = 3))
+}
+
+form1 = survived~Sex
+form2 = survived~Sex+Pclass
+form3 = survived~Sex+Pclass+Age
+form4 = survived~Sex+Pclass+Age+Name
+
+cat("Modelo 1:", RegresionLogistica(folds, form1), "\nModelo 2:", RegresionLogistica(folds, form2), "\nModelo 3:", RegresionLogistica(folds, form3), "\nModelo 4:", RegresionLogistica(folds,form4))
+
+
+```
+
+Obervamos que el modelo que obtiene un mejor rendimiento coincide con el que había determinado el criterio AIC anterior. A continuación, una vez identificamos el mejor modelo podemos realizar la predicción sobre el conjunto de test. Redondeamos el resultado de la predicción para obtener las etiquetas de las clases en el formato binario deseado. 
+
+
+```{r}
+modelo_rl = glm(formula = survived~Sex+Pclass+Age+Name, data=datos_train, family=binomial(link=logit))
+prediccion_rl <- predict(modelo_rl, datos_test, type = 'response')
+prediccion_rl <- round(prediccion_rl)
+
+
+```
+
+Generamos el archivo en el formato definido para poder ser validado en Kaggle. 
+
+```{r}
+
+kaggle_rl <- data.frame(datos_test$PassengerId, prediccion_rl)
+names(kaggle_rl)[names(kaggle_rl) == 'datos_test.PassengerId'] <- 'PassengerId'
+names(kaggle_rl)[names(kaggle_rl) == 'prediccion_rl'] <- 'Survived'
+
+kaggle_rl['Survived'] <- as.integer(unlist(kaggle_rl['Survived']))
+
+write.csv(kaggle_rl,"kaggle_rl.csv", row.names = FALSE)
+
+```
+
+
+### Algoritmo C5.0
+
+Otra técnica de clasificación consiste en crear el árbol de decisión utilizando la función *c5.0* de la librería *c50* que implementa una versión más moderna del algoritmo ID3 manteniendo los principios teóricos y añadiendo la poda automática. En ese caso, debemos eliminar las variables que no queremos utilizar en la clasificación antes de pasar el conjunto de datos al algoritmo. Igual que en el caso anterior utilizamos Cross Validation para determinar el mejor modelo a partir de dos datasets diferentes y utilizar diferentes valores del parámetro *trials* para especificar el número de modelos internos.
+
+```{r}
+Algoritmoc50 <- function(x, datos, tr){
+  
+  accuracy_tot = 0
+  
+  for (i in x){
+    #creamos los folds, guardando las etiquetas y quitandolas del dataset para que no se aprendan en el modelo
+    train_fold = datos[-i,]
+    labels = as.factor(train_fold$survived)
+    train_fold$survived <- NULL
+
+    test_fold = datos[i,]
+
+    #creamos el modelo
+    modelo_c50 <- C50::C5.0(train_fold, labels, trials = tr)#creamos el modelo
+    prediccion <- predict(modelo_c50, test_fold, type="class") #enviamos el modelo y los datos de test, devuelve una lista con las etiquetas de la predicción
+
+    #cramos la matriz de confusión
+    t = table(test_fold$survived, prediccion)
+    
+    #calculamos las métricas, en este caso accuracy
+    TP = t[1,1]
+    TN = t[2,2]
+    FP = t[2,1]
+    FN = t[1,2]
+    
+    accuracy = (TP+TN)/(TP+TN+FP+FN)*100
+    
+    accuracy_tot = accuracy_tot + accuracy
+  }
+  
+  return(round(accuracy_tot/length(x),digits = 3))
+}
+
+dataset_c501 <- datos_train
+dataset_c501$PassengerId <- NULL
+dataset_c501$Age_cat <- NULL
+dataset_c501$Fare_cat <- NULL
+dataset_c501$Embarked_num <- NULL
+dataset_c501$Name_num <- NULL
+dataset_c501$Sex_num <- NULL
+
+dataset_c502 <- dataset_c501
+dataset_c502$SibSp <- NULL
+dataset_c502$Parch <- NULL
+dataset_c502$Embarked <- NULL
+dataset_c502$Familia <- NULL
+
+cat("Modelo 1:", Algoritmoc50(folds, dataset_c501, 15), "\nModelo 2:", Algoritmoc50(folds, dataset_c501, 30), "\nModelo 3:", Algoritmoc50(folds, dataset_c502, 15), "\nModelo 4:", Algoritmoc50(folds,dataset_c502, 30))
+
+
+```
+
+Obervamos que el modelo que obtiene un mejor rendimiento utiliza el primer conjunto de datos con más variables y un número de *trials* de 15. A continuación, una vez identificamos el mejor modelo podemos realizar la predicción sobre el conjunto de test.
+
+
+```{r}
+dataset_c501$survived <- NULL #quitamos la variable del conjunto de entrenamiento
+
+modelo_c50 = C50::C5.0(dataset_c501, as.factor(datos_train$survived), trials = 15)
+prediccion_c50<- predict(modelo_c50, datos_test, type="class")
+
+
+```
+
+
+Generamos el archivo en el formato definido para poder ser validado en Kaggle. 
+
+
+```{r}
+
+kaggle_c50 <- data.frame(datos_test$PassengerId, prediccion_c50)
+names(kaggle_c50)[names(kaggle_c50) == 'datos_test.PassengerId'] <- 'PassengerId'
+names(kaggle_c50)[names(kaggle_c50) == 'prediccion_c50'] <- 'Survived'
+
+kaggle_c50['Survived'] <- as.integer(unlist(kaggle_c50['Survived']))
+
+kaggle_c50$Survived[kaggle_c50$Survived==1]<-0 
+kaggle_c50$Survived[kaggle_c50$Survived==2]<-1 
+
+write.csv(kaggle_c50,"kaggle_c50.csv", row.names = FALSE)
+
+```
+
+Otras de las características de este modelo es que permite una visualización del árbol de decisión que se ha generado. 
+
+```{r, figures-side9, fig.show="hold", out.width="100%",out.height="100%", fig.height = 10, fig.width = 40}
+
+plot(modelo_c50)
+
+```
+
+En este caso es muy grande para visualizarlo correctamente de forma completa, pero se pueden mostrar partes concretas del árbol indicando el parámetro subtree. Por ejemplo, podemos centrarnos en el nodo 30 y ver esta parte del árbol de forma ampliada. 
+
+
+```{r, figures-side10, fig.show="hold", out.width="100%",out.height="100%", fig.height = 10, fig.width = 10}
+plot(modelo_c50, subtree = 30)
+```
+
+Adicionalmente, este algoritmo permite crear un modelo basado en reglas de decisión para generar un conocimiento más concreto de las implicaciones que se detectan en el conjunto de datos. Para hacerlo, a la hora de generar el modelo se debe indicar la opción *rules=TRUE* y accedemos a ellas haciendo un *summary()* del modelo generado.  
+
+
+### Random Forest
+
+Otro tipo de árbol de clasificación que se puede entrenar es un modelo de random forest utilizando la librearia *randomForest*. En este caso, de nuevo podemos seleccionar el conjunto de variables que debe utilizar el algoritmo para realizar la predicción. Además, debemos indicar el número de árboles que se generan ya que el algoritmo asignará una etiqueta en función de la votación que haga cada uno de estos árboles simples. 
+
+
+```{r}
+AlgoritmocRandomForest <- function(x, form, nt){
+  
+  accuracy_tot = 0
+  
+  for (i in x){
+    #creamos los folds, guardando las etiquetas y quitandolas del dataset para que no se aprendan en el modelo
+    train_fold = datos_train[-i,]
+    test_fold = datos_train[i,]
+
+    #creamos el modelo
+    modelo_rf <- randomForest(form, data = train_fold, ntree = nt) #creamos el modelo
+    
+    prediccion <- predict(modelo_rf, test_fold) #enviamos el modelo y los datos de test, devuelve una lista con las etiquetas de la predicción
+
+    #cramos la matriz de confusión
+    t = table(test_fold$survived, prediccion)
+    
+    #calculamos las métricas, en este caso accuracy
+    TP = t[1,1]
+    TN = t[2,2]
+    FP = t[2,1]
+    FN = t[1,2]
+    
+    accuracy = (TP+TN)/(TP+TN+FP+FN)*100
+    
+    accuracy_tot = accuracy_tot + accuracy
+  }
+  
+  return(round(accuracy_tot/length(x),digits = 3))
+}
+
+form1 = as.factor(survived)~Sex_num+Age
+form2 = as.factor(survived)~Age+Pclass+Sex_num
+form3 = as.factor(survived)~Sex+Age+Pclass+Fare_cat+Familia
+form4 = as.factor(survived)~Age+Fare_cat+Sex_num+Embarked_num
+form5 = as.factor(survived)~Sex_num+Pclass+Age+Name_num+Familia
+form6 = as.factor(survived)~Sex_num+Age+Fare_cat+Name_num+Embarked_num+Familia+SibSp+Parch+Pclass
+
+
+
+cat("Modelo 1:", AlgoritmocRandomForest(folds, form1, 300), "\nModelo 2:", AlgoritmocRandomForest(folds, form2, 300), "\nModelo 3:", AlgoritmocRandomForest(folds, form3, 300), "\nModelo 4:", AlgoritmocRandomForest(folds,form4, 300), "\nModelo 5:", AlgoritmocRandomForest(folds,form5, 300), "\nModelo 6:", AlgoritmocRandomForest(folds,form6, 300))
+
+
+```
+
+Obervamos de nuevo el modelo que obtiene un mejor rendimiento utiliza todas las diferentes variables. No obstante, el modelo 5 obtiene un resultado similar con menos variables. En este caso, se decide utilizar este modelo como el mejor posible ya que al utilizar menos variable es más probable que generalice de forma más adecuada. El riesgo de utilizar una gran cantidad de variables es el overfitting o sobreajuste del modelo a los datos de entrenamiento que genera unos buenos resultados en las métricas, pero que no consigue generalizar y clasifica de forma incorrecta nuevas muestras. 
+
+```{r}
+modelo_rf <- randomForest(form5, data = datos_train, ntree = 300) #creamos el modelo
+
+prediccion_rf <- predict(modelo_rf, datos_test) #enviamos el modelo y los datos de test, devuelve una lista con las etiquetas de la predicción
+
+```
+
+Generamos el archivo en el formato definido para poder ser validado en Kaggle. 
+
+```{r}
+
+kaggle_rf <- data.frame(datos_test$PassengerId, prediccion_rf)
+names(kaggle_rf)[names(kaggle_rf) == 'datos_test.PassengerId'] <- 'PassengerId'
+names(kaggle_rf)[names(kaggle_rf) == 'prediccion_rf'] <- 'Survived'
+
+kaggle_rf['Survived'] <- as.integer(unlist(kaggle_rf['Survived']))
+
+kaggle_rf$Survived[kaggle_rf$Survived==1]<-0 
+kaggle_rf$Survived[kaggle_rf$Survived==2]<-1 
+
+write.csv(kaggle_rf,"kaggle_rf.csv", row.names = FALSE)
+
+```
+
+
+### Support Vector Machine
+
+Finalmente, como última propuesta se crea un modelo basado en SVM a partir de la librería *e1071*. La llamada a la función se realiza de forma similar a la del caso anterior. 
+
+```{r}
+AlgoritmocSVM <- function(x, form){
+  
+  accuracy_tot = 0
+  
+  for (i in x){
+    #creamos los folds, guardando las etiquetas y quitandolas del dataset para que no se aprendan en el modelo
+    train_fold = datos_train[-i,]
+    test_fold = datos_train[i,]
+
+    #creamos el modelo
+    modelo_rf <- svm(form, data = train_fold, type = 'C-classification', kernel = 'radial') #creamos el modelo
+    
+    prediccion <- predict(modelo_rf, test_fold) #enviamos el modelo y los datos de test, devuelve una lista con las etiquetas de la predicción
+
+    #cramos la matriz de confusión
+    t = table(test_fold$survived, prediccion)
+    
+    #calculamos las métricas, en este caso accuracy
+    TP = t[1,1]
+    TN = t[2,2]
+    FP = t[2,1]
+    FN = t[1,2]
+    
+    accuracy = (TP+TN)/(TP+TN+FP+FN)*100
+    
+    accuracy_tot = accuracy_tot + accuracy
+  }
+  
+  return(round(accuracy_tot/length(x),digits = 3))
+}
+
+form1 = as.factor(survived)~Sex_num+Age+Name_num+Pclass+Familia
+form2 = as.factor(survived)~Age+Fare_cat+Sex_num+Familia
+form3 = as.factor(survived)~Sex+Age+Pclass+Fare_cat+Familia
+form4 = as.factor(survived)~Age+Fare_cat+Sex_num+Embarked_num
+form5 = as.factor(survived)~Sex_num+Pclass+Age+Name_num
+form6 = as.factor(survived)~Sex_num+Age+Fare_cat+Name_num+Embarked_num+Familia+SibSp+Parch+Pclass
+
+
+
+cat("Modelo 1:", AlgoritmocSVM(folds, form1), "\nModelo 2:", AlgoritmocSVM(folds, form2), "\nModelo 3:", AlgoritmocSVM(folds, form3), "\nModelo 4:", AlgoritmocSVM(folds,form4), "\nModelo 5:", AlgoritmocSVM(folds,form5), "\nModelo 6:", AlgoritmocSVM(folds,form6))
+
+
+```
+
+Obervamos que destacan el modelo 1 y el modelo 6 obteniendo la mejor puntuación. En este sentido, seleccionamos el modelo 1 al tener menos variables para evitar problemas de overfitting que puedan derivarse del modelo 6. 
+
+```{r}
+modelo_svm <- svm(form1, data = datos_train, type = 'C-classification', kernel = 'radial') #creamos el modelo
+
+prediccion_svm <- predict(modelo_svm, datos_test) #enviamos el modelo y los datos de test, devuelve una lista con las etiquetas de la predicción
+
+```
+
+Generamos el archivo en el formato definido para poder ser validado en Kaggle. 
+
+```{r}
+
+kaggle_svm <- data.frame(datos_test$PassengerId, prediccion_svm)
+names(kaggle_svm)[names(kaggle_svm) == 'datos_test.PassengerId'] <- 'PassengerId'
+names(kaggle_svm)[names(kaggle_svm) == 'prediccion_svm'] <- 'Survived'
+
+kaggle_svm['Survived'] <- as.integer(unlist(kaggle_svm['Survived']))
+
+kaggle_svm$Survived[kaggle_svm$Survived==1]<-0 
+kaggle_svm$Survived[kaggle_svm$Survived==2]<-1 
+
+write.csv(kaggle_svm,"kaggle_svm.csv", row.names = FALSE)
+
+```
+
+
+# Conclusiones
+
+En primer lugar se ha realizado un preprocesado de los datos descartando algunas variables que carecían de interes o que tenían una gran cantidad de valores perdidios como por ejemplo *Cabin*. En otros casos, se han realizado imputaciones simples de los valores perdidios como por ejemplo la estimación del precio del billete basado en la media de los billetes de los pasajeros que viajaban en la misma clase. En el caso de la variable *Age* era considerablemente superior y se ha utilizado el algoritmo KNN para imputar los valores perdidos en función de otras variables significativas. En cuanto a valores outliers para las variables numéricas, aunque se trataban de datos presumiblemente correctos, se ha realizado un pequeño ajuste modificando el valor por el límite máximo más cercano. Además, para seguir manteniendo la representatividad se han creado variables adicionales discretas. 
+
+En el análisis de los datos se han realizado dos test de hipótesos para responder a dos preguntas de invetigación relevantes sobre el conjunto de datos. En este sentido, se ha podidio demostrar con evidencia estadística suficiente que la proporción de muejres que sobrevivieron al naufragió es más grande que la proporción de hombres. Por otro lado, el precio del billete también es un elemento importante que incrementa las posibilidades de supervivencia ya que hemos encontrado evidencia para afirmar que el cote promedio del billete de las personas que sorevivieron al naufragio era superior que al de las personas que no lo hicieron. 
+
+En relación a la supervivencia se han encotnrado algunas variables que inciden de forma significativa. En este sentido, la baja edad de las personas es un factor protector ya que sobrevivieron en mayor porcentaje niños y adolescentes. En cambio, los jovenes y adultos tuvieron una mayor tasa de muerte. Este hecho también se relaciona con el sexo y la clase en la que viajaba la persona tal y como se ha evidenciado en el contraste de hipótesis. Por último, las personas que viajaban solas también tenian una probabilidad más alta de morir. 
+
+Un análisis adicional ha permitido visualizar de manera clara como si bien la supervicencia de los niños y las mujeres es más elevada, los pasajeros de tercera clase no corrieron con igual suerte. En este sentido, se puede decir que se cumple el tradicional *mujeres y niños primero* con excepción de las personas de tercera clase.
+
+Finalmente se han realiado diferentes modelos de clasificación para dar respuesta al problema planteado de la competición de Kaggle. En este sentido, se han generado diversos modelos con algoritmos de Regresión Logística, el algoritmo C5.0, Random Forest y SVM. Para cada algoritmo se ha seleccionado uno de los modelos haciendo uso del método de Cross Validation para validar el modelo que mejor podía clasificar el problema. La siguiente tabla muesta al resumen del accuracy obtenido en la fase de entrenamiento con el método de Cross Validation y en la validación en Kaggle para cada uno de los modelos.  
+
+
+```{r}
+tabla <- data.frame(" " = c("Regresión Logística","C5.0","Random Forest", "SVM"),
+                    "Train" = c("79.91%","83.501%","81.484%", "81.484%"),
+                    "Test" = c("77.751%","74.880%","78.468%", "78.468%")
+                    )
+kable(tabla)
+```
+Podemos observar que todos los modelos han empeorado sus resultados con los datos de test. En este sentido, el que mas destaca es el modelo C5.0 que tenía la puntuación más alta en la fase de entrenamiento y la más baja en el test. Probablmente este hecho se pueda deber a que realiza un sobreajuste de los datos y no generaliza por lo que al intentar clisficar muestras desconocidos falla y es un modelo de peor calidad. Cabe recordar que esta configuración del modelo es la que más variable utilizaba lo que ha podido influir al overfitting. Respecto del resto de algoritmos, vemoscomo Random Forest y SVM obtienen la misma puntuación tanto en el entrenamiento como en el test. Sin embargo, aunque pueda parecer que está clasificando lo mismo si hacemos una comprobación de las similitudes de las etiquetas vemos que no es así ya que tienen 406 etiquetas igual de las 418 totales. 
+
+```{r}
+sum(prediccion_rf == prediccion_svm)
+```
+Como conclusión general se ha podido analizar las circuntancias que hacían que una persona tuviera más probabilidades para sobrevivir al saufragio del titanic como son el hecho de ser niño o mujer y viajar acompañado y en primera clase. Además, se han realizado modelos para intentar predecir este hecho y se ha obtenido un 78,468% de accuracy en el mejor de los casos. 
+
+
+
